@@ -1,0 +1,83 @@
+@dp.message()
+async def handle_content(message: Message):
+    user_id = message.from_user.id
+    
+    if user_data.get(user_id, {}).get("awaiting_repo"):
+        # Создание нового репозитория
+        repo_name = message.text.strip()
+        try:
+            response = requests.post(
+                "https://api.github.com/user/repos",
+                headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "name": repo_name,
+                    "auto_init": True,
+                    "private": False
+                }
+            )
+            
+            if response.status_code == 201:
+                await message.answer(f"✅ Репозиторий '{repo_name}' создан!")
+            else:
+                error = response.json().get("message", "Unknown error")
+                await message.answer(f"❌ Ошибка: {error}")
+                
+        except Exception as e:
+            await message.answer(f"⚠️ Ошибка: {str(e)}")
+        
+        user_data.pop(user_id, None)
+        return
+    
+    elif "repo" in user_data.get(user_id, {}):
+        # Добавление кода в репозиторий
+        repo_name = user_data[user_id]["repo"]
+        code = message.text
+        
+        try:
+            # Проверка существования файла
+            file_url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{repo_name}/contents/bot_upload.txt"
+            response = requests.get(
+                file_url,
+                headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            sha = response.json().get("sha") if response.status_code == 200 else None
+            
+            # Загрузка файла с правильным Base64 кодированием
+            upload_response = requests.put(
+                file_url,
+                headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "message": "Added via Telegram bot",
+                    "content": encode_content(code),
+                    "sha": sha
+                }
+            )
+            
+            if upload_response.status_code in (200, 201):
+                await message.answer("✅ Код успешно добавлен!")
+            else:
+                error = upload_response.json().get("message", "Unknown error")
+                await message.answer(f"❌ Ошибка загрузки: {error}")
+                
+        except Exception as e:
+            await message.answer(f"⚠️ Ошибка: {str(e)}")
+        
+        return
+    
+    await message.answer("ℹ️ Используйте команды /start или /help")
+
+async def main():
+    await dp.start_polling(bot)
+
+if name == "main":
+    import asyncio
+    asyncio.run(main())
