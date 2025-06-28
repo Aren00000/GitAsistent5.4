@@ -1,3 +1,100 @@
+!pip install aiogram==3.0.0 requests
+import requests
+import base64
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.enums import ParseMode
+import nest_asyncio
+
+
+nest_asyncio.apply()
+# Конфигурация
+BOT_TOKEN = '7334316140:AAEn6nF2fNOQ9yV5Wq55JnX9eWmX7nMWCng'
+GITHUB_TOKEN = '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'
+GITHUB_USERNAME = 'Aren00000'
+
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher()
+
+# Хранилище состояний
+user_data = {}
+
+def encode_content(content: str) -> str:
+    """Кодирует содержимое в Base64"""
+    return base64.b64encode(content.encode('utf-8')).decode('utf-8')
+
+async def check_github_access():
+    """Проверка доступности GitHub API"""
+    try:
+        response = requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"token {GITHUB_TOKEN}"},
+            timeout=5
+        )
+        return response.status_code == 200
+    except:
+        return False
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    if not await check_github_access():
+        await message.answer("⚠️ Ошибка доступа к GitHub. Проверьте токен.")
+        return
+    
+    await message.answer(
+        "<b>GitHub Manager Bot</b>\n\n"
+        "Доступные команды:\n"
+        "/repos - Список репозиториев\n"
+        "/newrepo - Создать репозиторий\n"
+        "/check - Проверить доступ к GitHub"
+    )
+
+@dp.message(Command("repos"))
+async def cmd_repos(message: Message):
+    try:
+        response = requests.get(
+            f"https://api.github.com/users/{GITHUB_USERNAME}/repos",
+            headers={
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+        )
+        
+        if response.status_code != 200:
+            await message.answer(f"❌ Ошибка GitHub API: {response.json().get('message', 'Unknown error')}")
+            return
+            
+        repos = response.json()
+        
+        builder = InlineKeyboardBuilder()
+        for repo in repos[:15]:  # Ограничение для избежания переполнения
+            builder.add(InlineKeyboardButton(
+                text=repo['name'],
+                callback_data=f"repo_{repo['name']}"
+            ))
+        builder.adjust(2)
+        
+        await message.answer(
+            "Ваши репозитории:",
+            reply_markup=builder.as_markup()
+        )
+        
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка: {str(e)}")
+
+@dp.callback_query(lambda c: c.data.startswith("repo_"))
+async def repo_selected(callback: CallbackQuery):
+    repo_name = callback.data.split('_')[1]
+    user_data[callback.from_user.id] = {"repo": repo_name}
+    await callback.message.edit_text(f"Выбран: {repo_name}\nОтправьте код:")
+    await callback.answer()
+
+@dp.message(Command("newrepo"))
+async def cmd_new_repo(message: Message):
+    await message.answer("Введите название нового репозитория:")
+    user_data[message.from_user.id] = {"awaiting_repo": True}
 @dp.message()
 async def handle_content(message: Message):
     user_id = message.from_user.id
